@@ -1,0 +1,217 @@
+---
+title: Topic Modelling and Sentimental Analysis for Tragedies by William Shakespeare 
+author:
+  - name: Hieu Tran
+    affil: 1
+
+affiliation:
+  - num: 1
+    address: Graduating with BS of CIS and minoring in Data Science, Lehman College
+
+column_numbers: 3
+
+font_family: Roboto
+
+titletext_fontfamily: Palestiano
+
+primary_colour: "#9c5608"
+
+logoleft_name: https&#58;//raw.githubusercontent.com/hieutrn1205/sentiment/main/lehmancollege.png
+logoright_name: https&#58;//raw.githubusercontent.com/hieutrn1205/sentiment/main/cuny.png
+output: 
+  posterdown::posterdown_html:
+    self_contained: false
+bibliography: packages1.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+# Introduction
+
+Welcome to my poster research. In this research I used NLP techniques and plain text dataset in order to topic model and analyze the sentiments throughout each plays, specifically tragedies in the `Shakespeare's complete works` that from Gutenberg's website.
+
+# Objectives
+
+1. Determine the tragedy plays whether negative or not. 
+2. Will the topic of this play also be a topic of another play.
+3. If they have the same topic, the words in the plays are the same or not.
+4. Which sentimental of words that Shakespeare were using the most 
+
+# Methods
+
+Using tidyverse package and multiple techniques to preprocess the dataset. First, I subset the lines for contents of the books, and deselected it from the original dataset. Second, I used the regex techniques in order to clean out the redundant text lines and character's names. Third, I find the line of each plays by its name and those lines are first line of each plays. How can I identify accurately the whole section of each plays? I used the grep function which will "delay" 1 line for each new play. Basically, the first line of the new plays - 1 line will be the last line of previous plays. After I have first line and last line of each plays, I kept continuing on cleaning the dataset by removing the stopwords and stemming of each words. After the dataset is preprocessed, I tokenized the text into individual words. Then, I looked at tf which is term frequency of each words in each plays. Fourth, I moved to the next step is topic modelling, after looked at multiple k, I considered the best k for my dataset is 7. After I got the topic modelling for each plays based on machine learning of the tf in each plays. 
+
+```{r  echo=FALSE,message=FALSE,warning=FALSE}
+library(gutenbergr)
+library(tidytext)
+library(tidyr)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(scales)
+library(SnowballC)
+library(here)
+library(textdata)
+library(topicmodels)
+library(scales)
+setwd(here())
+data("stop_words")
+william <- readRDS("william.rds")
+new_words <- data.frame(word = c("king", "hamlet", "antony", "richard", "othello", "romeo", "caesar", "macbeth", "cleopatra", "edward", "sir", "timon", "lear", "lord", "coriolanus", "juliet", "prince", "thou", "thy", "thee"))
+#c("thou", "thy", "thee"))
+```
+
+```{r echo=TRUE, message=FALSE}
+
+cleaned_william <- william[58:nrow(william), ] |> mutate(reg_ex =  
+  sub("[A-Z ]*\\.", "", text))
+cleaned_william <- cleaned_william |> mutate(reg_ex = sub("(\\[.*?\\])", "", reg_ex))
+cleaned_william$reg_ex[grep("Enter", cleaned_william$reg_ex, fixed = TRUE)] <- ""
+
+chapter <- william[10:53,2]
+chapter <- pull(chapter, text) |> trimws()
+cleaned_chapter <- lapply(chapter, grep, cleaned_william$text, fixed = TRUE)
+first_line <- integer()
+for (i in 1:length(cleaned_chapter)){
+     first_line[[i]] <- cleaned_chapter[[i]][1]}
+last_line <- Hmisc::Lag(first_line, shift =-1)
+last_line <- last_line -1
+last_line[44] <- nrow(cleaned_william)
+```
+```{r echo = TRUE}
+chapter_n <- data.frame(first_line, last_line, chapter)
+cleaned_william$play <- NA
+for (i in 1:nrow(chapter_n)){
+  cleaned_william[chapter_n$first_line[i]:chapter_n$last_line[i], 4] <- chapter_n$chapter[i]}
+cleaned_william <- cleaned_william |> group_by(play) |> mutate(linenumber = row_number()) |> ungroup()
+stop_words <- stop_words |> select(-lexicon)
+stop_words <- rbind(stop_words, new_words)
+```
+
+
+# Results
+
+The result generated was predictable because based on the context of the plays, you would find the similarity of these tragedies "The tragedy of Julius Caesar" and "The tragedy of Cleopatra and Cleopatra", "The tragedy of Coriolanus" and "The tragedy of Titus Andronicus". The connection of these plays are obvious if you have read them. The heatmap on words assigned was brought me in the curiosity because when you looked at the plays, the play some how has lower than 50% of the words came from itself. For the symmetric similarity of words for the four tragedies I have mentioned, it could be the words assigned from this and other are the same because they are connected to each others. From the previous research of many scholars, their output were Shakespeare's style slightly to be negative writer. After I generated the word cloud and I acknowledged that he used positive words more than negative words based on bing model of sentimental analysis.
+
+
+```{r echo = FALSE,message=FALSE }
+tokenized <- cleaned_william |> unnest_tokens(word, reg_ex) |> anti_join(stop_words) |> mutate(word = str_extract(word, "[a-z']+")) |> mutate(stem = wordStem(word)) |> count(play, stem, sort = TRUE)
+subset_words <- c("TRAGEDY")
+tragedy <- subset(chapter, grepl(paste(subset_words, collapse = "|"), chapter))
+total_words <- tokenized |>
+  group_by(play) |> dplyr::summarize(total = sum(n))
+
+countbyplay <- tokenized
+
+```
+
+```{r top-terms, out.width='80%', fig.align='center', fig.cap='Topic Modelling', fig.height=5, message=FALSE}
+combined_freq <- countbyplay |> left_join(total_words, by = "play")
+play_dtm <- tokenized |> filter(play %in% tragedy) |> cast_dtm(play, stem, n)
+play_lda <- LDA(play_dtm, k = 7, control = list(seed = 1234))
+play_topics <- tidy(play_lda, matrix = "beta")
+
+play_gamma <- tidy(play_lda, matrix = "gamma")
+
+play_gamma |> mutate(play = reorder(document, gamma*topic)) |>
+  ggplot(aes(factor(topic), gamma)) +
+  geom_boxplot() + 
+  facet_wrap(~ play) +
+  labs(x = "topic", y = expression(gamma))
+
+
+```
+
+
+
+# Next Steps
+
+I used the techniques in the Text Mining in R, which is looked at the similarity of words through the plays. This step will strengthen the output of topic modelling generated. Finally, I used sentimental analysis technique to look at each plays and get insight through it, then I generated the sentimental trend word cloud for the whole book.
+
+```{r echo=FALSE, message=FALSE, warning = FALSE, include= FALSE}
+play_classification <- play_gamma |>
+  group_by(document) |>
+  slice_max(gamma) |>
+  ungroup()
+
+play_topic <- play_classification |> 
+  count(document, topic) |>
+  group_by(document) |>
+  slice_max(n, n = 1) |>
+  ungroup() |>
+  transmute(consensus = document, topic)
+play_classification |> inner_join(play_topic, by = "topic") |>
+  filter(document != consensus)
+
+assignments <- augment(play_lda, data= play_dtm)
+assignments <- assignments |> inner_join(play_topic, by = c(".topic" = "topic"))
+
+```
+
+```{r word-assigned, out.width='80%', fig.align='center', fig.cap='Words Assigned', fig.height=5, message=FALSE, warning = FALSE}
+
+
+assignments |>
+  count(document, consensus, wt = count) |>
+  mutate(across(c(document, consensus), ~str_wrap(., 20))) |>
+  group_by(document) |>
+  mutate(percent = n/sum(n)) |>
+  ggplot(aes(consensus, document, fill = percent)) +
+  geom_tile() +
+  scale_fill_gradient2(high = "darkred", label = percent_format()) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        panel.grid = element_blank()) +
+  labs(x = "Play words were assigned to",
+       y = "Play words came from",
+       fill = "% off assignments")
+```
+
+```{r echo = FALSE, message=FALSE, warning = FALSE, include= FALSE}
+tokenized_without_stem <- cleaned_william |>
+  filter(play %in% tragedy) |>
+  group_by(play) |>
+  mutate(linenumber = row_number()) |>
+  ungroup() |>
+  unnest_tokens(word, reg_ex) |> 
+  mutate(word = str_extract(word, "[a-z']+"))
+
+tokenized_without_stem |> 
+  count(play, word, sort = TRUE)
+bing_word_counts <- tokenized_without_stem |>
+  inner_join(get_sentiments("bing")) |>
+  count(word, sentiment, sort = TRUE) |>
+  ungroup()
+
+william_sentiment <- tokenized_without_stem |>
+  inner_join(get_sentiments("bing")) |>
+  count(play, index = linenumber%/% 20, sentiment) |>
+  pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) |>
+  mutate(sentiment = positive - negative)
+```
+
+
+```{r word-cloud, out.width='80%', fig.align='center', fig.cap='Sentimental Analysis', fig.height=5, message=FALSE, warning = FALSE}
+
+p<-ggplot(william_sentiment, aes(index, sentiment, fill = play)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~play, ncol = 3, scales = "free_x")
+p
+```
+
+
+# Conclusion
+
+The tragedies's tone are not essentially negative. Because by the word cloud, I can say that Shakespeare's style of using words is not deeply negative as the scholars had conducted research on his works before. Some of the plays have the connection to each other by sharing the same topic and words assigned are similar.
+
+```{r, include=FALSE}
+knitr::write_bib(c('knitr','rmarkdown','posterdown','pagedown'), 'packages.bib')
+```
+
+# References
+
+---
+nocite: '@*'
+...
